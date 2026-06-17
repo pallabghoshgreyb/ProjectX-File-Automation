@@ -1,285 +1,186 @@
-﻿
-<!DOCTYPE html>
-
+﻿<!DOCTYPE html>
 <html lang="en">
-
 <head>
-
     <meta charset="UTF-8">
-
     <title>ProjectX Patent Portfolio Processor</title>
-
     <style>
-
         body {
-
             font-family: Arial, sans-serif;
-
             background: #f5f7fb;
-
             margin: 0;
-
             padding: 40px;
-
         }
-
-
 
         .container {
-
             max-width: 720px;
-
             margin: auto;
-
             background: #ffffff;
-
             padding: 28px;
-
             border-radius: 12px;
-
             box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
-
         }
-
-
 
         h1 {
-
             margin-top: 0;
-
             color: #1f2937;
-
         }
 
-
+        h3 {
+            margin-top: 0;
+            color: #1f2937;
+        }
 
         label {
-
             display: block;
-
             margin-top: 16px;
-
             font-weight: bold;
-
             color: #374151;
-
         }
-
-
 
         input[type="file"],
-
         input[type="text"] {
-
             width: 100%;
-
             padding: 10px;
-
             margin-top: 6px;
-
             border: 1px solid #d1d5db;
-
             border-radius: 6px;
-
         }
-
-
 
         button {
-
             margin-top: 20px;
-
             padding: 12px 20px;
-
             background: #2563eb;
-
             color: white;
-
             border: none;
-
             border-radius: 6px;
-
             cursor: pointer;
-
             font-weight: bold;
-
         }
-
-
 
         button:hover {
-
             background: #1d4ed8;
-
         }
-
-
 
         .message {
-
             margin-bottom: 18px;
-
             padding: 14px 16px;
-
             border-radius: 6px;
-
             font-weight: bold;
-
         }
-
-
 
         .success {
-
             background: #dcfce7;
-
             color: #166534;
-
             border: 1px solid #86efac;
-
         }
-
-
 
         .error {
-
             background: #fee2e2;
-
             color: #991b1b;
-
             border: 1px solid #fca5a5;
-
             white-space: pre-wrap;
-
         }
 
+        .demo-box {
+            background: #eef2ff;
+            border: 1px solid #c7d2fe;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
 
+        .demo-box p {
+            margin-bottom: 12px;
+            color: #374151;
+        }
+
+        .demo-link {
+            display: inline-block;
+            padding: 10px 14px;
+            background: #4f46e5;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+        }
+
+        .demo-link:hover {
+            background: #4338ca;
+        }
 
         .download-box {
-
             margin-top: 18px;
-
+            margin-bottom: 18px;
         }
-
-
 
         .download-link {
-
             display: inline-block;
-
             padding: 12px 18px;
-
             background: #16a34a;
-
             color: white;
-
             text-decoration: none;
-
             border-radius: 6px;
-
             font-weight: bold;
-
         }
-
-
 
         .download-link:hover {
-
             background: #15803d;
-
         }
-
-
 
         .hint {
-
             margin-top: 10px;
-
             color: #6b7280;
-
             font-size: 14px;
-
         }
-
     </style>
-
 </head>
 
 <body>
-
 <div class="container">
-
     <h1>ProjectX Patent Portfolio Processor</h1>
 
-
-
     {% if success %}
-
         <div class="message success">
-
             {{ success }}
-
         </div>
-
     {% endif %}
-
-
 
     {% if error %}
-
         <div class="message error">
-
             Error: {{ error }}
-
         </div>
-
     {% endif %}
-
-
 
     {% if download_url %}
-
         <div class="download-box">
-
             <a class="download-link" href="{{ download_url }}">Download Processed File</a>
-
         </div>
-
     {% endif %}
 
-
-
-    <form action="/upload" method="post" enctype="multipart/form-data">
-
-        <label for="file">Upload ProjectX Excel File</label>
-
-        <input type="file" id="file" name="file" accept=".xls,.xlsx" required>
-
-
-
-        <label for="sheet_name">Sheet Name</label>
-
-        <input type="text" id="sheet_name" name="sheet_name" value="Sheet 1">
-
-
-
-        <button type="submit">Process File</button>
-
-    </form>
-
-
-
-    <div class="hint">
-
-        Upload an Excel file. If processing is successful, a download button will appear.
-
-        If something fails, the error will be shown above.
-
+    <div class="demo-box">
+        <h3>Need the input format?</h3>
+        <p>
+            Download the demo input file to see the required upload format before processing your own file.
+        </p>
+        <a class="demo-link" href="/download-demo">
+            Download Demo Input File
+        </a>
     </div>
 
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <label for="file">Upload ProjectX Excel File</label>
+        <input type="file" id="file" name="file" accept=".xls,.xlsx" required>
+
+        <label for="sheet_name">Sheet Name</label>
+        <input type="text" id="sheet_name" name="sheet_name" value="Sheet 1">
+
+        <button type="submit">Process File</button>
+    </form>
+
+    <div class="hint">
+        Upload an Excel file. If processing is successful, a download button will appear.
+        If something fails, the error will be shown above.
+    </div>
 </div>
-
 </body>
-
 </html>
-
