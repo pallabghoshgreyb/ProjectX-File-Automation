@@ -237,6 +237,9 @@ def prepare_dates_and_years(data: pd.DataFrame) -> pd.DataFrame:
     for column in ["Publication Date", "Filing Date", "Priority Date"]:
         data[column] = pd.to_datetime(data[column], errors="coerce")
 
+    data["Priority Date"] = data["Priority Date"].fillna(data["Filing Date"])
+    data["Filing Date"] = data["Filing Date"].fillna(data["Priority Date"])
+    
     data["Publication Year"] = data["Publication Date"].dt.year.astype("Int64")
     data["Application Year"] = data["Filing Date"].dt.year.astype("Int64")
     return data
@@ -406,31 +409,38 @@ def create_ar_and_relevancy_fields(data: pd.DataFrame) -> pd.DataFrame:
 # Alive/Dead logic
 # ---------------------------------------------------------------------------
 
-def projectx_status_to_dead_alive(simple_status: Any) -> str | pd.NA:
-    status = normalize_string_for_matching(simple_status)
-    status_map = {
-        "active": "Active",
-        "pending": "Active",
-        "pct designated stage": "Active",
-        "inactive": "Inactive",
-        "expired": "Inactive",
-        "lapsed": "Inactive",
-        "withdrawn": "Inactive",
-        "abandoned": "Inactive",
-        "revoked": "Inactive",
-        "pct designated stage expired": "Inactive",
-        "undetermined": pd.NA,
-        "unknown": pd.NA,
-        "": pd.NA,
-        "-": pd.NA,
-    }
-    return status_map.get(status, pd.NA)
+def projectx_status_to_dead_alive(status: Any) -> str | pd.NA:
+    status = normalize_string_for_matching(status)
+
+    if status in {"alive", "active"}:
+        return "Active"
+
+    if status in {"dead", "inactive"}:
+        return "Inactive"
+
+    return pd.NA
+
+
+def add_dead_alive(data: pd.DataFrame) -> pd.DataFrame:
+    today = pd.Timestamp.today().normalize()
+
+    data["ProjectX Legal Status"] = data["Simple Legal Status"]
+
+    status_frame = data.apply(
+        lambda row: classify_dead_alive_for_row(row, today),
+        axis=1
+    )
+
+    data["Dead_Alive"] = status_frame["Dead_Alive"]
+    data["Dead_Alive Source"] = status_frame["Dead_Alive Source"]
+
+    return data
 
 
 def classify_dead_alive_for_row(row: pd.Series, today: pd.Timestamp) -> pd.Series:
-    country_code = str(row.get("Country Code") or "").upper()
+    country_code = str(row.get("Country Code") or "").strip().upper()
     e_date = row.get("Priority Date")
-    simple_status = row.get("Simple Legal Status")
+    simple_status = row.get("ProjectX Legal Status")
     patent_type = normalize_string_for_matching(row.get("Patent Type"))
 
     if country_code == "WO":
@@ -442,7 +452,7 @@ def classify_dead_alive_for_row(row: pd.Series, today: pd.Timestamp) -> pd.Serie
 
     projectx_value = projectx_status_to_dead_alive(simple_status)
     if not pd.isna(projectx_value):
-        return pd.Series({"Dead_Alive": projectx_value, "Dead_Alive Source": "ProjectX Simple Legal Status"})
+        return pd.Series({"Dead_Alive": projectx_value, "Dead_Alive Source": "ProjectX Legal Status"})
 
     is_design = "design" in patent_type
     is_utility = (
@@ -457,26 +467,14 @@ def classify_dead_alive_for_row(row: pd.Series, today: pd.Timestamp) -> pd.Serie
         return pd.Series({"Dead_Alive": "Review Required", "Dead_Alive Source": "Missing E-date"})
 
     if is_design:
-        if e_date > today - pd.DateOffset(months=180):
-            return pd.Series({"Dead_Alive": "Active", "Dead_Alive Source": "Design 180-month E-date rule"})
-        return pd.Series({"Dead_Alive": "Inactive", "Dead_Alive Source": "Design 180-month E-date rule"})
+        status = "Active" if e_date > today - pd.DateOffset(months=180) else "Inactive"
+        return pd.Series({"Dead_Alive": status, "Dead_Alive Source": "Design 180-month E-date rule"})
 
     if is_utility:
-        if e_date > today - pd.DateOffset(months=240):
-            return pd.Series({"Dead_Alive": "Active", "Dead_Alive Source": "Utility 240-month E-date rule"})
-        return pd.Series({"Dead_Alive": "Inactive", "Dead_Alive Source": "Utility 240-month E-date rule"})
+        status = "Active" if e_date > today - pd.DateOffset(months=240) else "Inactive"
+        return pd.Series({"Dead_Alive": status, "Dead_Alive Source": "Utility 240-month E-date rule"})
 
     return pd.Series({"Dead_Alive": "Review Required", "Dead_Alive Source": "Unmapped patent type/status"})
-
-
-def add_dead_alive(data: pd.DataFrame) -> pd.DataFrame:
-    today = pd.Timestamp.today().normalize()
-    status_frame = data.apply(lambda row: classify_dead_alive_for_row(row, today), axis=1)
-    data["ProjectX Legal Status"] = data["Simple Legal Status"]
-    data["Dead_Alive"] = status_frame["Dead_Alive"]
-    data["Dead_Alive Source"] = status_frame["Dead_Alive Source"]
-    return data
-
 
 # ---------------------------------------------------------------------------
 # Forward-citation counting
@@ -776,6 +774,23 @@ def make_user_facing_output(data: pd.DataFrame) -> pd.DataFrame:
     return data.drop(columns=columns_to_drop).copy()
 
 
+def make_process_file_output(data: pd.DataFrame) -> pd.DataFrame:
+    """Keep the internal audit sheet, but omit the requested columns from process file."""
+    columns_to_drop = [
+        column
+        for column in ["A+R", "A+R Relevancy", "Application Country Code"]
+        if column in data.columns
+    ]
+    output = data.drop(columns=columns_to_drop).copy()
+
+    # Export dates without time components for the process file sheet only.
+    for column in output.columns:
+        if pd.api.types.is_datetime64_any_dtype(output[column]):
+            output[column] = output[column].dt.date
+
+    return output
+
+
 # ---------------------------------------------------------------------------
 # Excel output helpers
 # ---------------------------------------------------------------------------
@@ -913,8 +928,8 @@ def process_portfolio(input_path: Path, output_path: Path, sheet_name: str) -> N
     total_records_internal = sort_for_application_dedupe(data)
     total_records_internal = total_records_internal[build_column_order(total_records_internal)]
 
-    # Full internal dataset for audit/debugging. This preserves every helper column.
-    process_file = total_records_internal.copy()
+    # Full internal dataset for audit/debugging, with the requested columns removed.
+    process_file = make_process_file_output(total_records_internal)
 
     unique_applications_internal = create_unique_applications(total_records_internal, notes)
     unique_applications_internal = sort_for_family_dedupe(unique_applications_internal)
