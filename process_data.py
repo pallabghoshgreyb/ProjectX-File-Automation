@@ -753,6 +753,7 @@ def build_column_order(data: pd.DataFrame) -> list[str]:
         "Priority Country Code",
         "Priority Country/Region",
         "Priority Country/Region Full",
+        "Current Assignee",
         "Current Assignees",
         "Relevancy Checking",
         "Link",
@@ -782,6 +783,7 @@ def make_process_file_output(data: pd.DataFrame) -> pd.DataFrame:
         if column in data.columns
     ]
     output = data.drop(columns=columns_to_drop).copy()
+    output = output.rename(columns={"Current Assignees": "Current Assignee after A+R"})
 
     # Export dates without time components for the process file sheet only.
     for column in output.columns:
@@ -875,11 +877,6 @@ def write_output(
         fill_output_blanks(country_summary).to_excel(writer, index=False, sheet_name="Country")
         fill_output_blanks(rd_centers).to_excel(writer, index=False, sheet_name="R&D Centers")
         fill_output_blanks(years_summary).to_excel(writer, index=False, sheet_name="Years")
-        fill_output_blanks(validation_sheet).to_excel(writer, index=False, sheet_name="PatSnap Validation")
-        fill_output_blanks(dedupe_summary).to_excel(writer, index=False, sheet_name="Dedupe Summary")
-        fill_output_blanks(mapping_issues).to_excel(writer, index=False, sheet_name="Mapping Issues")
-        fill_output_blanks(run_notes).to_excel(writer, index=False, sheet_name="Run Notes")
-
         autosize_worksheets(writer)
 
         if "Country" in writer.sheets:
@@ -904,6 +901,7 @@ def process_portfolio(input_path: Path, output_path: Path, sheet_name: str) -> N
     data = raw_data.copy()
     data = validate_and_add_optional_columns(data, notes)
     data = clean_text_columns(data)
+    data["Current Assignee"] = data["Current Assignees"]
     data = fill_current_assignee(data, notes)
     data = prepare_identifiers(data)
     data = prepare_dates_and_years(data)
@@ -953,7 +951,7 @@ def process_portfolio(input_path: Path, output_path: Path, sheet_name: str) -> N
     add_note(notes, "Output", "process file", len(total_records_internal))
     add_note(notes, "Output", "Total Records", len(unique_applications))
     add_note(notes, "Output", UNIQUE_FAMILY_SHEET_NAME, len(unique_families))
-    add_note(notes, "Manual validation", "PatSnap validation remains a manual review step; use the PatSnap Validation sheet.")
+    add_note(notes, "Manual validation", "PatSnap validation remains a manual review step.")
 
     run_notes = pd.DataFrame(notes)
     write_output(
