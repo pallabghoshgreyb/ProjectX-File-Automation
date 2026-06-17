@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 from process_data import process_portfolio
 
 
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
@@ -166,6 +167,21 @@ def file_too_large(error):
 # ---------------------------------------------------------------------------
 # Local run
 # ---------------------------------------------------------------------------
+@app.route("/download-demo", methods=["GET"])
+def download_demo_file():
+    demo_path = BASE_DIR / "static" / "demo" / "ProjectX_raw_input_demo_for_upload.xlsx"
+
+    if not demo_path.exists():
+        return render_home(
+            error="Demo input file is not available on the server."
+        )
+
+    return send_file(
+        demo_path,
+        as_attachment=True,
+        download_name="ProjectX_raw_input_demo_for_upload.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
