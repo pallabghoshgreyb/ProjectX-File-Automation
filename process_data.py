@@ -286,16 +286,42 @@ def add_country_fields(data: pd.DataFrame) -> pd.DataFrame:
     data["Country Name"] = data["Country Code"].map(COUNTRY_MAP).fillna("Unknown")
 
     data["Application Country Code"] = data["Application Number"].map(extract_country_code_from_identifier).astype("string")
-    data["Priority Country Code Raw"] = data["Priority Number"].map(extract_country_code_from_identifier).astype("string")
+    priority_number = data["Priority Number"].astype("string")
+    priority_number_clean = priority_number.fillna("")
+
+    pct_priority_mask = priority_number_clean.str.startswith("PCT")
+    priority_country_code_raw = priority_number.map(extract_country_code_from_identifier).astype("string")
+    priority_country_code_raw = priority_country_code_raw.mask(
+        pct_priority_mask,
+        priority_number_clean.str[3:5].where(priority_number_clean.str.len() >= 5, pd.NA),
+    )
+    data["Priority Country Code Raw"] = priority_country_code_raw
     data["Priority Country Code"] = data["Priority Country Code Raw"]
+
+    priority_country_column = data["Priority Country"].astype("string") if "Priority Country" in data.columns else pd.Series(pd.NA, index=data.index, dtype="string")
+    priority_country_column = priority_country_column.str.strip().str.upper()
+
+    priority_country_code = data["Priority Country Code"].copy()
+    priority_country_mask = priority_country_column.isin(["WO", "IB"])
+    priority_country_code = priority_country_code.mask(priority_country_mask, data["Country Code"])
+
+    still_wo_ib_mask = priority_country_code.isin(["WO", "IB"])
+    application_number = data["Application Number"].astype("string").fillna("")
+    application_is_pct = application_number.str.startswith("PCT")
+    application_country_from_pct = application_number.str[3:5].where(application_number.str.len() >= 5, pd.NA)
+    application_country_from_non_pct = application_number.str[:2].where(application_number.str.len() >= 2, pd.NA)
+    application_country_fallback = application_country_from_non_pct.mask(application_is_pct, application_country_from_pct)
+    priority_country_code = priority_country_code.mask(still_wo_ib_mask, application_country_fallback)
 
     if USE_APPLICATION_COUNTRY_WHEN_PRIORITY_COUNTRY_IS_WO:
         mask = (
-            data["Priority Country Code"].eq("WO")
+            priority_country_code.eq("WO")
             & data["Application Country Code"].notna()
             & ~data["Application Country Code"].eq("WO")
         )
-        data.loc[mask, "Priority Country Code"] = data.loc[mask, "Application Country Code"]
+        priority_country_code = priority_country_code.mask(mask, data["Application Country Code"])
+
+    data["Priority Country Code"] = priority_country_code.astype("string")
 
     data["Priority Country/Region"] = data["Priority Country Code"]
     data["Priority Country/Region Full"] = data["Priority Country Code"].map(COUNTRY_MAP).fillna("Unknown")
@@ -697,6 +723,21 @@ def create_years_summary(data: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def create_legal_status_summary(data: pd.DataFrame) -> pd.DataFrame:
+    """Create a Legal Status summary using Active/Inactive rows from Total Records."""
+    if "Dead_Alive" not in data.columns:
+        return pd.DataFrame(columns=["Legal Status", "Count"])
+
+    summary = (
+        data.loc[data["Dead_Alive"].isin(["Active", "Inactive"]), "Dead_Alive"]
+        .value_counts()
+        .reindex(["Active", "Inactive"], fill_value=0)
+        .rename_axis("Legal Status")
+        .reset_index(name="Count")
+    )
+    return summary
+
+
 def create_validation_sheet(data: pd.DataFrame) -> pd.DataFrame:
     columns = [
         "Publication Number",
@@ -862,6 +903,7 @@ def write_output(
     country_summary: pd.DataFrame,
     rd_centers: pd.DataFrame,
     years_summary: pd.DataFrame,
+    legal_status_summary: pd.DataFrame,
     validation_sheet: pd.DataFrame,
     dedupe_summary: pd.DataFrame,
     mapping_issues: pd.DataFrame,
@@ -877,6 +919,7 @@ def write_output(
         fill_output_blanks(country_summary).to_excel(writer, index=False, sheet_name="Country")
         fill_output_blanks(rd_centers).to_excel(writer, index=False, sheet_name="R&D Centers")
         fill_output_blanks(years_summary).to_excel(writer, index=False, sheet_name="Years")
+        fill_output_blanks(legal_status_summary).to_excel(writer, index=False, sheet_name="Legal Status")
         autosize_worksheets(writer)
 
         if "Country" in writer.sheets:
@@ -935,9 +978,10 @@ def process_portfolio(input_path: Path, output_path: Path, sheet_name: str) -> N
     unique_families_internal, dedupe_summary = create_unique_patent_families(unique_applications_internal)
     unique_families_internal = unique_families_internal[build_column_order(unique_families_internal)]
 
-    country_summary = create_country_summary(unique_families_internal, country_rank_map)
+    country_summary = create_country_summary(total_records_internal, country_rank_map)
     rd_centers = create_rd_centers_summary(unique_families_internal)
-    years_summary = create_years_summary(unique_families_internal)
+    years_summary = create_years_summary(total_records_internal)
+    legal_status_summary = create_legal_status_summary(total_records)
     validation_sheet = make_user_facing_output(create_validation_sheet(unique_families_internal))
 
     # User-facing data sheets exclude internal helper/audit columns.
@@ -964,6 +1008,7 @@ def process_portfolio(input_path: Path, output_path: Path, sheet_name: str) -> N
         country_summary=country_summary,
         rd_centers=rd_centers,
         years_summary=years_summary,
+        legal_status_summary=legal_status_summary,
         validation_sheet=validation_sheet,
         dedupe_summary=dedupe_summary,
         mapping_issues=mapping_issues,
