@@ -981,7 +981,7 @@ def process_portfolio(input_path: Path, output_path: Path, sheet_name: str) -> N
     country_summary = create_country_summary(total_records_internal, country_rank_map)
     rd_centers = create_rd_centers_summary(unique_families_internal)
     years_summary = create_years_summary(total_records_internal)
-    legal_status_summary = create_legal_status_summary(total_records)
+    legal_status_summary = create_legal_status_summary(total_records_internal)
     validation_sheet = make_user_facing_output(create_validation_sheet(unique_families_internal))
 
     # User-facing data sheets exclude internal helper/audit columns.
