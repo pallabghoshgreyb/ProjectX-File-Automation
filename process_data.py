@@ -978,14 +978,14 @@ def process_portfolio(input_path: Path, output_path: Path, sheet_name: str) -> N
     unique_families_internal, dedupe_summary = create_unique_patent_families(unique_applications_internal)
     unique_families_internal = unique_families_internal[build_column_order(unique_families_internal)]
 
-    country_summary = create_country_summary(total_records_internal, country_rank_map)
+    country_summary = create_country_summary(unique_applications_internal, country_rank_map)
     rd_centers = create_rd_centers_summary(unique_families_internal)
-    years_summary = create_years_summary(total_records_internal)
-    legal_status_summary = create_legal_status_summary(total_records_internal)
+    years_summary = create_years_summary(unique_applications_internal)
+    legal_status_summary = create_legal_status_summary(unique_applications_internal)
     validation_sheet = make_user_facing_output(create_validation_sheet(unique_families_internal))
 
     # User-facing data sheets exclude internal helper/audit columns.
-    total_records = make_user_facing_output(total_records_internal)
+    total_records = make_user_facing_output(unique_applications_internal)
     unique_applications = make_user_facing_output(unique_applications_internal)
     unique_families = make_user_facing_output(unique_families_internal)
 
