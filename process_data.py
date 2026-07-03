@@ -841,7 +841,11 @@ def make_process_file_output(data: pd.DataFrame) -> pd.DataFrame:
 def fill_output_blanks(data: pd.DataFrame) -> pd.DataFrame:
     """Fill all blank/NA cells with '-' for final Excel output only."""
     output = data.copy()
-    output = output.fillna("-")
+    # Convert all columns to string first to avoid dtype issues with Int64 and other nullable types
+    output = output.astype(str)
+    # Replace string representations of NA with "-"
+    output = output.replace(['nan', '<NA>', 'None'], '-')
+    # Replace empty/whitespace strings with '-'
     output = output.replace(r"^\s*$", "-", regex=True)
     return output
 
