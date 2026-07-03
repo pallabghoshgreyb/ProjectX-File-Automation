@@ -54,6 +54,32 @@ def render_home(success=None, error=None, download_url=None):
     )
 
 
+def friendly_error_message(exc: Exception) -> str:
+    """Translate technical exceptions into plain-English messages for users."""
+    message = str(exc).strip()
+
+    if isinstance(exc, ValueError) and message.startswith("Missing required columns:"):
+        missing = message.removeprefix("Missing required columns:").strip()
+        return (
+            "Your file is missing required information. "
+            f"Please add these columns and try again: {missing}."
+        )
+
+    if isinstance(exc, FileNotFoundError):
+        return "We could not create the processed file. Please try uploading the file again."
+
+    if "sheet" in message.lower() and "not found" in message.lower():
+        return (
+            "The sheet name you entered was not found in the Excel file. "
+            "Please check the sheet name and try again."
+        )
+
+    if message:
+        return f"Something went wrong while processing your file: {message}"
+
+    return "Something went wrong while processing your file. Please try again."
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -129,7 +155,7 @@ def upload_file():
 
         return render_home(
             success=None,
-            error=str(exc),
+            error=friendly_error_message(exc),
             download_url=None,
         )
 
