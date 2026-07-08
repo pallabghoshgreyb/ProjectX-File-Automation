@@ -39,7 +39,12 @@ from map_country import (
 # ---------------------------------------------------------------------------
 # Generic helpers
 # ---------------------------------------------------------------------------
-
+def progress(step, total, message):
+    percent = round((step / total) * 100, 2)
+    text = f"{percent}% - {message}"
+    print(text, flush=True)
+    return text
+    
 def clean_identifier_value(value: Any) -> str | pd.NA:
     """Return a stripped identifier while preserving leading zeroes and alphanumeric IDs."""
     if pd.isna(value):
@@ -353,34 +358,20 @@ def add_patent_type(data: pd.DataFrame, notes: list[dict[str, Any]]) -> pd.DataF
     if not original_present:
         data["Patent Type"] = pd.NA
 
-    original_values = data["Patent Type"].copy()
-    design_mask = data["Publication Number"].map(is_design_publication_number)
-    blank_mask = original_values.map(clean_identifier_value).isna()
+    pub = data["Publication Number"].astype("string").fillna("")
+    pub_norm = pub.str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
 
-    data["Patent Type"] = data.apply(
-        lambda row: derive_patent_type_from_publication(row["Publication Number"], row.get("Patent Type", pd.NA)),
-        axis=1,
-    )
+    design_mask = pub_norm.str.startswith("USD") | pub_norm.str.endswith(("S", "S1", "S2"))
+
+    original_values = data["Patent Type"].astype("string").str.strip()
+    blank_mask = original_values.isna() | original_values.eq("") | original_values.isin(["-", "--"])
+
+    data["Patent Type"] = original_values.mask(blank_mask, "Patents")
+    data.loc[design_mask, "Patent Type"] = "Designs"
 
     data["Patent Type Source"] = "Input Patent Type"
     data.loc[design_mask, "Patent Type Source"] = "Derived from Publication Number design rule"
     data.loc[~design_mask & blank_mask, "Patent Type Source"] = "Defaulted to Patents because source was blank/missing"
-
-    add_note(
-        notes,
-        "Patent Type",
-        "Derived designs from publication numbers starting with USD or ending with S/S1/S2",
-        int(design_mask.sum()),
-    )
-    if not original_present:
-        add_note(notes, "Patent Type", "Patent Type column was missing in input; created automatically")
-    if int((~design_mask & blank_mask).sum()):
-        add_note(
-            notes,
-            "Patent Type",
-            "Blank/missing non-design Patent Type values defaulted to Patents for 240-month rule",
-            int((~design_mask & blank_mask).sum()),
-        )
 
     return data
 
@@ -452,16 +443,51 @@ def add_dead_alive(data: pd.DataFrame) -> pd.DataFrame:
 
     data["ProjectX Legal Status"] = data["Simple Legal Status"]
 
-    status_frame = data.apply(
-        lambda row: classify_dead_alive_for_row(row, today),
-        axis=1
+    country = data["Country Code"].astype("string").fillna("").str.upper()
+    e_date = data["Priority Date"]
+    simple_status = data["ProjectX Legal Status"].astype("string").fillna("").str.strip().str.lower()
+    patent_type = data["Patent Type"].astype("string").fillna("").str.strip().str.lower()
+
+    data["Dead_Alive"] = "Review Required"
+    data["Dead_Alive Source"] = "Unmapped patent type/status"
+
+    alive_mask = simple_status.isin(["alive", "active"])
+    dead_mask = simple_status.isin(["dead", "inactive"])
+
+    data.loc[alive_mask, "Dead_Alive"] = "Active"
+    data.loc[alive_mask, "Dead_Alive Source"] = "ProjectX Legal Status"
+
+    data.loc[dead_mask, "Dead_Alive"] = "Inactive"
+    data.loc[dead_mask, "Dead_Alive Source"] = "ProjectX Legal Status"
+
+    wo_mask = country.eq("WO")
+    data.loc[wo_mask & e_date.isna(), "Dead_Alive Source"] = "WIPO 30-month rule; missing E-date"
+    data.loc[wo_mask & e_date.notna() & (e_date > today - pd.DateOffset(months=30)), "Dead_Alive"] = "Active"
+    data.loc[wo_mask & e_date.notna() & (e_date > today - pd.DateOffset(months=30)), "Dead_Alive Source"] = "WIPO 30-month rule"
+    data.loc[wo_mask & e_date.notna() & (e_date <= today - pd.DateOffset(months=30)), "Dead_Alive"] = "Inactive"
+    data.loc[wo_mask & e_date.notna() & (e_date <= today - pd.DateOffset(months=30)), "Dead_Alive Source"] = "WIPO 30-month rule"
+
+    unresolved = ~(alive_mask | dead_mask | wo_mask)
+
+    design_mask = unresolved & patent_type.str.contains("design", na=False)
+    utility_mask = unresolved & ~design_mask & (
+        patent_type.isin(["utility models", "utility model", "applications", "application", "patents", "patent", "undetermined", ""])
+        | patent_type.str.contains("utility", na=False)
     )
 
-    data["Dead_Alive"] = status_frame["Dead_Alive"]
-    data["Dead_Alive Source"] = status_frame["Dead_Alive Source"]
+    data.loc[unresolved & e_date.isna(), "Dead_Alive Source"] = "Missing E-date"
+
+    data.loc[design_mask & e_date.notna() & (e_date > today - pd.DateOffset(months=180)), "Dead_Alive"] = "Active"
+    data.loc[design_mask & e_date.notna() & (e_date > today - pd.DateOffset(months=180)), "Dead_Alive Source"] = "Design 180-month E-date rule"
+    data.loc[design_mask & e_date.notna() & (e_date <= today - pd.DateOffset(months=180)), "Dead_Alive"] = "Inactive"
+    data.loc[design_mask & e_date.notna() & (e_date <= today - pd.DateOffset(months=180)), "Dead_Alive Source"] = "Design 180-month E-date rule"
+
+    data.loc[utility_mask & e_date.notna() & (e_date > today - pd.DateOffset(months=240)), "Dead_Alive"] = "Active"
+    data.loc[utility_mask & e_date.notna() & (e_date > today - pd.DateOffset(months=240)), "Dead_Alive Source"] = "Utility 240-month E-date rule"
+    data.loc[utility_mask & e_date.notna() & (e_date <= today - pd.DateOffset(months=240)), "Dead_Alive"] = "Inactive"
+    data.loc[utility_mask & e_date.notna() & (e_date <= today - pd.DateOffset(months=240)), "Dead_Alive Source"] = "Utility 240-month E-date rule"
 
     return data
-
 
 def classify_dead_alive_for_row(row: pd.Series, today: pd.Timestamp) -> pd.Series:
     country_code = str(row.get("Country Code") or "").strip().upper()
@@ -864,89 +890,82 @@ def autosize_worksheets(writer: pd.ExcelWriter) -> None:
         worksheet.freeze_panes = "A2"
 
 
-def add_bar_chart(worksheet: Any, title: str, value_column: int, category_column: int = 1, anchor: str = "G2", max_rows: int = 20) -> None:
-    if BarChart is None or Reference is None or worksheet.max_row < 2:
-        return
-    last_row = min(worksheet.max_row, max_rows + 1)
-    chart = BarChart()
-    chart.title = title
-    chart.y_axis.title = "Patents"
-    chart.x_axis.title = "Category"
-    values = Reference(worksheet, min_col=value_column, min_row=1, max_row=last_row)
-    categories = Reference(worksheet, min_col=category_column, min_row=2, max_row=last_row)
-    chart.add_data(values, titles_from_data=True)
-    chart.set_categories(categories)
-    chart.height = 7
-    chart.width = 12
-    worksheet.add_chart(chart, anchor)
+# def add_bar_chart(worksheet: Any, title: str, value_column: int, category_column: int = 1, anchor: str = "G2", max_rows: int = 20) -> None:
+#     if BarChart is None or Reference is None or worksheet.max_row < 2:
+#         return
+#     last_row = min(worksheet.max_row, max_rows + 1)
+#     chart = BarChart()
+#     chart.title = title
+#     chart.y_axis.title = "Patents"
+#     chart.x_axis.title = "Category"
+#     values = Reference(worksheet, min_col=value_column, min_row=1, max_row=last_row)
+#     categories = Reference(worksheet, min_col=category_column, min_row=2, max_row=last_row)
+#     chart.add_data(values, titles_from_data=True)
+#     chart.set_categories(categories)
+#     chart.height = 7
+#     chart.width = 12
+#     worksheet.add_chart(chart, anchor)
 
 
-def add_years_chart(worksheet: Any) -> None:
-    if LineChart is None or Reference is None or worksheet.max_row < 2:
-        return
-    chart = LineChart()
-    chart.title = "Application and Granted Publication Trends"
-    chart.y_axis.title = "Patents"
-    chart.x_axis.title = "Year"
-    values = Reference(worksheet, min_col=2, max_col=3, min_row=1, max_row=worksheet.max_row)
-    categories = Reference(worksheet, min_col=1, min_row=2, max_row=worksheet.max_row)
-    chart.add_data(values, titles_from_data=True)
-    chart.set_categories(categories)
-    chart.height = 7
-    chart.width = 14
-    worksheet.add_chart(chart, "E2")
+# def add_years_chart(worksheet: Any) -> None:
+#     if LineChart is None or Reference is None or worksheet.max_row < 2:
+#         return
+#     chart = LineChart()
+#     chart.title = "Application and Granted Publication Trends"
+#     chart.y_axis.title = "Patents"
+#     chart.x_axis.title = "Year"
+#     values = Reference(worksheet, min_col=2, max_col=3, min_row=1, max_row=worksheet.max_row)
+#     categories = Reference(worksheet, min_col=1, min_row=2, max_row=worksheet.max_row)
+#     chart.add_data(values, titles_from_data=True)
+#     chart.set_categories(categories)
+#     chart.height = 7
+#     chart.width = 14
+#     worksheet.add_chart(chart, "E2")
 
 
 def write_output(
     output_path: Path,
-    raw_backup: pd.DataFrame,
-    process_file: pd.DataFrame,
-    total_records: pd.DataFrame,
-    unique_applications: pd.DataFrame,
-    unique_families: pd.DataFrame,
-    country_summary: pd.DataFrame,
-    rd_centers: pd.DataFrame,
-    years_summary: pd.DataFrame,
-    legal_status_summary: pd.DataFrame,
-    validation_sheet: pd.DataFrame,
-    dedupe_summary: pd.DataFrame,
-    mapping_issues: pd.DataFrame,
-    run_notes: pd.DataFrame,
+    raw_backup,
+    process_file,
+    total_records,
+    unique_applications,
+    unique_families,
+    country_summary,
+    rd_centers,
+    years_summary,
+    legal_status_summary,
+    validation_sheet,
+    dedupe_summary,
+    mapping_issues,
+    run_notes,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with pd.ExcelWriter(output_path, engine="openpyxl", datetime_format="yyyy-mm-dd", date_format="yyyy-mm-dd") as writer:
-        fill_output_blanks(raw_backup).to_excel(writer, index=False, sheet_name="Raw Backup")
-        fill_output_blanks(process_file).to_excel(writer, index=False, sheet_name="process file")
-        fill_output_blanks(unique_applications).to_excel(writer, index=False, sheet_name="Total Records")
-        fill_output_blanks(unique_families).to_excel(writer, index=False, sheet_name=UNIQUE_FAMILY_SHEET_NAME)
-        fill_output_blanks(country_summary).to_excel(writer, index=False, sheet_name="Country")
-        fill_output_blanks(rd_centers).to_excel(writer, index=False, sheet_name="R&D Centers")
-        fill_output_blanks(years_summary).to_excel(writer, index=False, sheet_name="Years")
-        fill_output_blanks(legal_status_summary).to_excel(writer, index=False, sheet_name="Legal Status")
-        autosize_worksheets(writer)
-
-        if "Country" in writer.sheets:
-            add_bar_chart(writer.sheets["Country"], "Top Countries", value_column=2, category_column=1)
-        if "R&D Centers" in writer.sheets:
-            add_bar_chart(writer.sheets["R&D Centers"], "Top R&D Centers", value_column=2, category_column=1)
-        if "Years" in writer.sheets:
-            add_years_chart(writer.sheets["Years"])
-
+    with pd.ExcelWriter(output_path, engine="xlsxwriter") as writer:
+        total_records.to_excel(writer, index=False, sheet_name="Total Records")
+        unique_families.to_excel(writer, index=False, sheet_name=UNIQUE_FAMILY_SHEET_NAME)
+        country_summary.to_excel(writer, index=False, sheet_name="Country")
+        rd_centers.to_excel(writer, index=False, sheet_name="R&D Centers")
+        years_summary.to_excel(writer, index=False, sheet_name="Years")
+        legal_status_summary.to_excel(writer, index=False, sheet_name="Legal Status")
 
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 def process_portfolio(input_path: Path, output_path: Path, sheet_name: str) -> None:
+    yield progress(1, 20, "Starting portfolio processing")
     notes: list[dict[str, Any]] = []
     status_map, mapping_issues = build_application_status_map()
-
+    
+    yield progress(2, 20, "Reading Excel file")
     raw_data = pd.read_excel(input_path, sheet_name=sheet_name, dtype=object)
+    yield progress(3, 20, f"Excel loaded. Rows: {len(raw_data)}")
     raw_backup = raw_data.copy()
     add_note(notes, "Input", f"Read sheet '{sheet_name}' from {input_path}", len(raw_data))
 
     data = raw_data.copy()
     data = validate_and_add_optional_columns(data, notes)
+    yield progress(4, 20, "Columns validated")
     data = clean_text_columns(data)
     data["Current Assignee"] = data["Current Assignees"]
     data = fill_current_assignee(data, notes)

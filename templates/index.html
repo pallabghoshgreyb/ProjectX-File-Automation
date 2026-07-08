@@ -176,6 +176,41 @@
 
         <button type="submit">Process File</button>
     </form>
+    {% if run_id %}
+<div style="width:100%; background:#ddd; border-radius:8px;">
+  <div id="progressBar" style="width:0%; background:#16a34a; color:white; padding:8px; border-radius:8px;">
+    0%
+  </div>
+</div>
+
+<p id="progressText">Starting...</p>
+<div id="downloadBox"></div>
+
+<script>
+const runId = "{{ run_id }}";
+
+const timer = setInterval(() => {
+  fetch(`/progress/${runId}`)
+    .then(res => res.json())
+    .then(data => {
+      document.getElementById("progressBar").style.width = data.percent + "%";
+      document.getElementById("progressBar").innerText = data.percent + "%";
+      document.getElementById("progressText").innerText = data.message;
+
+      if (data.status === "completed") {
+        clearInterval(timer);
+        document.getElementById("downloadBox").innerHTML =
+          `<a href="${data.download_url}">Download processed file</a>`;
+      }
+
+      if (data.status === "failed") {
+        clearInterval(timer);
+        document.getElementById("progressText").innerText = data.error;
+      }
+    });
+}, 1000);
+</script>
+{% endif %}
 
     <div class="hint">
         Upload an Excel file. If processing is successful, a download button will appear.

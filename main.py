@@ -3,7 +3,7 @@ from uuid import uuid4
 import logging
 import shutil
 import traceback
-
+from threading import Thread
 from flask import Flask, request, render_template, send_file, url_for
 from werkzeug.utils import secure_filename
 
@@ -29,7 +29,13 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, template_folder=str(TEMPLATE_DIR))
 
 app.config["ALLOWED_EXTENSIONS"] = {"xls", "xlsx"}
+<<<<<<< HEAD
 app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024  # 100 MB
+=======
+app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024 
+
+jobs = {}
+>>>>>>> 22f4a32 (08_aug)
 
 DEFAULT_SHEET_NAME = "Sheet 1"
 
@@ -37,6 +43,33 @@ DEFAULT_SHEET_NAME = "Sheet 1"
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
+
+def run_processing_job(run_id, input_path, output_path, sheet_name, output_filename):
+    jobs[run_id] = {
+        "percent": 0,
+        "message": "Processing started",
+        "status": "running",
+        "download_url": None,
+        "error": None,
+    }
+
+    try:
+        for msg in process_portfolio(input_path, output_path, sheet_name):
+            jobs[run_id]["message"] = msg
+            jobs[run_id]["percent"] = float(msg.split("%")[0])
+
+        if not output_path.exists():
+            raise FileNotFoundError("Processing finished, but output file was not created.")
+
+        jobs[run_id]["percent"] = 100
+        jobs[run_id]["message"] = "Processing completed"
+        jobs[run_id]["status"] = "completed"
+        jobs[run_id]["download_url"] = f"/download/{run_id}/{output_filename}"
+
+    except Exception as exc:
+        logging.error(traceback.format_exc())
+        jobs[run_id]["status"] = "failed"
+        jobs[run_id]["error"] = friendly_error_message(exc)
 
 def allowed_file(filename: str) -> bool:
     return (
@@ -93,14 +126,10 @@ def upload_file():
     uploaded_file = request.files.get("file")
 
     if uploaded_file is None or uploaded_file.filename == "":
-        return render_home(
-            error="No file selected. Please upload an Excel file."
-        )
+        return render_home(error="No file selected. Please upload an Excel file.")
 
     if not allowed_file(uploaded_file.filename):
-        return render_home(
-            error="Invalid file type. Please upload only .xls or .xlsx files."
-        )
+        return render_home(error="Invalid file type. Please upload only .xls or .xlsx files.")
 
     sheet_name = request.form.get("sheet_name", DEFAULT_SHEET_NAME).strip()
     if not sheet_name:
@@ -125,29 +154,16 @@ def upload_file():
     try:
         uploaded_file.save(input_path)
 
-        process_portfolio(
-            input_path=input_path,
-            output_path=output_path,
-            sheet_name=sheet_name,
-        )
+        Thread(
+            target=run_processing_job,
+            args=(run_id, input_path, output_path, sheet_name, output_filename),
+            daemon=True,
+        ).start()
 
-        if not output_path.exists():
-            raise FileNotFoundError("Processing finished, but output file was not created.")
-
-        download_url = url_for(
-            "download_file",
-            run_id=run_id,
-            filename=output_filename,
-        )
-
-        return render_home(
-            success="File processed successfully.",
-            error=None,
-            download_url=download_url,
-        )
+        return render_template("index.html", run_id=run_id)
 
     except Exception as exc:
-        logging.error("Error during file processing")
+        logging.error("Error during file upload")
         logging.error(traceback.format_exc())
 
         shutil.rmtree(run_upload_dir, ignore_errors=True)
@@ -158,7 +174,15 @@ def upload_file():
             error=friendly_error_message(exc),
             download_url=None,
         )
-
+@app.route("/progress/<run_id>", methods=["GET"])
+def get_progress(run_id):
+    return jobs.get(run_id, {
+        "percent": 0,
+        "message": "Job not found",
+        "status": "not_found",
+        "download_url": None,
+        "error": "Job not found",
+    })
 
 @app.route("/download/<run_id>/<filename>", methods=["GET"])
 def download_file(run_id: str, filename: str):
@@ -186,7 +210,7 @@ def health():
 @app.errorhandler(413)
 def file_too_large(error):
     return render_home(
-        error="Uploaded file is too large. Maximum allowed file size is 100 MB."
+        error="Uploaded file is too large. Maximum allowed file size is 1 GB."
     ), 413
 
 
