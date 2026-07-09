@@ -29,13 +29,11 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, template_folder=str(TEMPLATE_DIR))
 
 app.config["ALLOWED_EXTENSIONS"] = {"xls", "xlsx"}
-<<<<<<< HEAD
 app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024  # 100 MB
 =======
 app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024 
 
 jobs = {}
->>>>>>> 22f4a32 (08_aug)
 
 DEFAULT_SHEET_NAME = "Sheet 1"
 
