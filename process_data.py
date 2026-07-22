@@ -355,6 +355,36 @@ def derive_patent_type_from_publication(publication_number: Any, existing_patent
     return "Patents"
 
 
+def add_patent_type(data: pd.DataFrame, notes: list[dict[str, Any]]) -> pd.DataFrame:
+    """Populate Patent Type and record whether the value was provided or derived."""
+    existing_patent_type = (
+        data["Patent Type"]
+        if "Patent Type" in data.columns
+        else pd.Series(pd.NA, index=data.index, dtype="string")
+    )
+
+    data["Patent Type"] = data.apply(
+        lambda row: derive_patent_type_from_publication(
+            row.get("Publication Number"),
+            row.get("Patent Type", pd.NA),
+        ),
+        axis=1,
+    )
+    data["Patent Type Source"] = existing_patent_type.map(
+        lambda value: "Provided" if not pd.isna(clean_identifier_value(value)) else "Derived"
+    )
+
+    provided_count = int((data["Patent Type Source"] == "Provided").sum())
+    derived_count = int((data["Patent Type Source"] == "Derived").sum())
+    add_note(
+        notes,
+        "Patent Type",
+        "Filled Patent Type from the source column when present, otherwise derived it from the publication number",
+        f"{provided_count} provided / {derived_count} derived",
+    )
+    return data
+
+
 
 
 
