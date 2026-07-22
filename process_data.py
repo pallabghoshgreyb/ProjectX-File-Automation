@@ -235,6 +235,8 @@ def prepare_identifiers(data: pd.DataFrame) -> pd.DataFrame:
     data["INPADOC Family ID"] = data["INPADOC Family ID"].fillna(data["Publication Number"])
     data["INPADOC Family Members (Beta)"] = data["INPADOC Family Members (Beta)"].fillna(data["Publication Number"])
     data["Priority Number"] = data["Priority Number"].fillna(data["Application Number"])
+    data["Priority Number"] = data["Priority Number"].str.replace("/", "", regex=False)
+
     return data
 
 
@@ -288,7 +290,7 @@ def add_application_status(data: pd.DataFrame, status_map: dict[str, str], notes
 
 def add_country_fields(data: pd.DataFrame) -> pd.DataFrame:
     data["Country Code"] = data["Publication Number"].map(extract_country_code_from_identifier).astype("string")
-    data["Country Name"] = data["Country Code"].map(COUNTRY_MAP).fillna("Unknown")
+    data["Country Name"] = data["Country Code"].map(COUNTRY_MAP).fillna("-")
 
     data["Application Country Code"] = data["Application Number"].map(extract_country_code_from_identifier).astype("string")
     priority_number = data["Priority Number"].astype("string")
@@ -329,7 +331,7 @@ def add_country_fields(data: pd.DataFrame) -> pd.DataFrame:
     data["Priority Country Code"] = priority_country_code.astype("string")
 
     data["Priority Country/Region"] = data["Priority Country Code"]
-    data["Priority Country/Region Full"] = data["Priority Country Code"].map(COUNTRY_MAP).fillna("Unknown")
+    data["Priority Country/Region Full"] = data["Priority Country Code"].map(COUNTRY_MAP).fillna("-")
     return data
 
 
@@ -353,27 +355,7 @@ def derive_patent_type_from_publication(publication_number: Any, existing_patent
     return "Patents"
 
 
-def add_patent_type(data: pd.DataFrame, notes: list[dict[str, Any]]) -> pd.DataFrame:
-    original_present = "Patent Type" in data.columns
-    if not original_present:
-        data["Patent Type"] = pd.NA
 
-    pub = data["Publication Number"].astype("string").fillna("")
-    pub_norm = pub.str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
-
-    design_mask = pub_norm.str.startswith("USD") | pub_norm.str.endswith(("S", "S1", "S2"))
-
-    original_values = data["Patent Type"].astype("string").str.strip()
-    blank_mask = original_values.isna() | original_values.eq("") | original_values.isin(["-", "--"])
-
-    data["Patent Type"] = original_values.mask(blank_mask, "Patents")
-    data.loc[design_mask, "Patent Type"] = "Designs"
-
-    data["Patent Type Source"] = "Input Patent Type"
-    data.loc[design_mask, "Patent Type Source"] = "Derived from Publication Number design rule"
-    data.loc[~design_mask & blank_mask, "Patent Type Source"] = "Defaulted to Patents because source was blank/missing"
-
-    return data
 
 
 def create_ar_and_relevancy_fields(data: pd.DataFrame) -> pd.DataFrame:
