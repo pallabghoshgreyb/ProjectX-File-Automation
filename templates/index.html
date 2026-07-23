@@ -127,6 +127,24 @@
             background: #15803d;
         }
 
+        .reset-box {
+            margin-top: 12px;
+        }
+
+        .reset-link {
+            display: inline-block;
+            padding: 12px 18px;
+            background: #6b7280;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: bold;
+        }
+
+        .reset-link:hover {
+            background: #4b5563;
+        }
+
         .hint {
             margin-top: 10px;
             color: #6b7280;
@@ -200,7 +218,8 @@ const timer = setInterval(() => {
       if (data.status === "completed") {
         clearInterval(timer);
         document.getElementById("downloadBox").innerHTML =
-          `<a href="${data.download_url}">Download processed file</a>`;
+          `<a class="download-link" href="${data.download_url}">Download processed file</a>` +
+          `<div class="reset-box"><a class="reset-link" href="/">Start a new task</a></div>`;
       }
 
       if (data.status === "failed") {

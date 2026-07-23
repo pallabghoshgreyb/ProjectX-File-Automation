@@ -41,14 +41,6 @@ DEFAULT_SHEET_NAME = "Sheet 1"
 # ---------------------------------------------------------------------------
 
 def run_processing_job(run_id, input_path, output_path, sheet_name, output_filename):
-    jobs[run_id] = {
-        "percent": 0,
-        "message": "Processing started",
-        "status": "running",
-        "download_url": None,
-        "error": None,
-    }
-
     try:
         for msg in process_portfolio(input_path, output_path, sheet_name):
             jobs[run_id]["message"] = msg
@@ -150,6 +142,14 @@ def upload_file():
     try:
         uploaded_file.save(input_path)
 
+        jobs[run_id] = {
+            "percent": 0,
+            "message": "Processing started",
+            "status": "running",
+            "download_url": None,
+            "error": None,
+        }
+
         Thread(
             target=run_processing_job,
             args=(run_id, input_path, output_path, sheet_name, output_filename),
@@ -174,10 +174,10 @@ def upload_file():
 def get_progress(run_id):
     return jobs.get(run_id, {
         "percent": 0,
-        "message": "Job not found",
-        "status": "not_found",
+        "message": "Processing started",
+        "status": "running",
         "download_url": None,
-        "error": "Job not found",
+        "error": None,
     })
 
 @app.route("/download/<run_id>/<filename>", methods=["GET"])
